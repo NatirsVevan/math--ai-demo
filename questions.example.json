@@ -1,0 +1,35 @@
+[
+  {
+    "type": "choice",
+    "chapter": "一元一次方程",
+    "question": "解方程 4x - 3 = 13，x 等于多少？",
+    "option_a": "3",
+    "option_b": "4",
+    "option_c": "5",
+    "option_d": "6",
+    "answer": "B",
+    "explain": "移项得 4x = 16，故 x = 4。"
+  },
+  {
+    "type": "choice",
+    "chapter": "整式运算",
+    "question": "化简：3a + 2a 等于？",
+    "option_a": "5a",
+    "option_b": "6a",
+    "option_c": "5a²",
+    "option_d": "6a²",
+    "answer": "A",
+    "explain": "同类项直接相加系数：3+2=5，结果为 5a。"
+  },
+  {
+    "type": "blank",
+    "chapter": "几何初步",
+    "question": "一个平角等于（____）度。",
+    "option_a": null,
+    "option_b": null,
+    "option_c": null,
+    "option_d": null,
+    "answer": "180",
+    "explain": "平角的度数为 180。"
+  }
+]

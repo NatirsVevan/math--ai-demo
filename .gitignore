@@ -1,0 +1,13 @@
+# 依赖与运行产物
+node_modules/
+data.db
+data.db-shm
+data.db-wal
+*.zip
+
+# 敏感配置（含 API Key，绝不入仓库）
+config.js
+
+# 日志与系统文件
+*.log
+.DS_Store

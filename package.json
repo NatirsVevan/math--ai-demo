@@ -1,0 +1,13 @@
+{
+  "name": "math-ai-demo",
+  "version": "1.0.0",
+  "description": "初中数学 AI 启发式导学系统 - 后端",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cropperjs": "^2.1.1",
+    "express": "^4.19.2"
+  }
+}

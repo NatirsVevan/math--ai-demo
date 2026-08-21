@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>初中数学 AI 启发式导学系统</title>
+  <!--
+    项目名：初中数学启发式导学系统
+    说明：本页面由后端 server.js 托管，所有数据通过 fetch 调用后端接口(/api/...)。
+          运行方式见 server.js。页面分 7 个部分。
+    ============ 后端接口对照 ============
+    GET  /api/questions          取全部题目
+    GET  /api/questions/by-chapter  按章节取题
+    POST /api/answers            提交答案+判题 {questionId,userAnswer}
+    GET  /api/wrong-book         错题本
+    POST /api/chat               AI引导 {message,history}
+    GET  /api/stats              学习统计
+    GET  /api/knowledge          知识点(章节)
+  -->
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: "PingFang SC","Microsoft YaHei",sans-serif; background:#f3f6fb; color:#1f2d3d; }
+    a { text-decoration:none; color:inherit; }
+    button { cursor:pointer; font-family:inherit; }
+    .navbar { background:#2b6cb0; color:#fff; display:flex; align-items:center; padding:0 20px; height:60px; position:sticky; top:0; z-index:100; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+    .navbar .logo { font-size:18px; font-weight:700; margin-right:30px; white-space:nowrap; }
+    .navbar .logo small { font-size:12px; font-weight:400; opacity:.8; }
+    .nav-links { display:flex; gap:6px; flex-wrap:wrap; }
+    .nav-links a { padding:8px 14px; border-radius:6px; font-size:14px; transition:background .2s; }
+    .nav-links a:hover { background:rgba(255,255,255,.18); }
+    .nav-links a.active { background:rgba(255,255,255,.25); font-weight:600; }
+    .page { display:none; padding:24px 20px; max-width:1000px; margin:0 auto; }
+    .page.active { display:block; }
+    .page h2 { margin-bottom:18px; color:#2b6cb0; }
+    .card { background:#fff; border-radius:10px; padding:20px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+    .card h3 { margin-bottom:10px; color:#334; }
+    .card p { line-height:1.7; color:#556; }
+    .btn { background:#2b6cb0; color:#fff; border:none; padding:10px 18px; border-radius:6px; font-size:14px; transition:background .2s; }
+    .btn:hover { background:#245b96; }
+    .btn.ghost { background:#e2e8f0; color:#334; }
+    .btn.ghost:hover { background:#cbd5e0; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .entry-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+    .entry { background:#fff; border-radius:10px; padding:24px; text-align:center; box-shadow:0 1px 4px rgba(0,0,0,.08); transition:transform .15s,box-shadow .15s; border:1px solid #eef2f7; cursor:pointer; }
+    .entry:hover { transform:translateY(-3px); box-shadow:0 6px 16px rgba(43,108,176,.15); }
+    .entry .icon { font-size:34px; margin-bottom:10px; }
+    .entry h4 { margin-bottom:6px; color:#1f2d3d; }
+    .entry p { font-size:13px; color:#778; }
+    .question { font-size:16px; margin-bottom:14px; line-height:1.8; }
+    .options label { display:block; padding:10px 14px; margin-bottom:8px; border:1px solid #dfe4ec; border-radius:8px; cursor:pointer; transition:background .15s; }
+    .options label:hover { background:#f0f5ff; }
+    .options input { margin-right:10px; }
+    .result-box { margin-top:12px; padding:12px; border-radius:8px; font-size:14px; line-height:1.6; }
+    .result-box.right { background:#eafaf1; border:1px solid #a7e6c3; color:#1e8449; }
+    .result-box.wrong { background:#fdeef0; border:1px solid #f5b7b1; color:#c0392b; }
+    .chat-box { border:1px solid #e1e6ef; border-radius:10px; background:#fafbfd; height:360px; min-height:200px; max-height:85vh; resize:vertical; overflow-y:auto; padding:16px; margin-bottom:12px; display:flex; flex-direction:column; gap:10px; }
+    .msg { max-width:78%; padding:10px 14px; border-radius:10px; line-height:1.6; font-size:14px; white-space:pre-wrap; }
+    .msg.ai { background:#fff; border:1px solid #e3e8f1; align-self:flex-start; }
+    .msg.user { background:#2b6cb0; color:#fff; align-self:flex-end; }
+    .chat-input-row { display:flex; gap:10px; }
+    .chat-input-row input { flex:1; padding:10px 14px; border:1px solid #dfe4ec; border-radius:8px; font-size:14px; }
+    .stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; }
+    .stat { background:#fff; border-radius:10px; padding:20px; text-align:center; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+    .stat .num { font-size:30px; font-weight:700; color:#2b6cb0; margin-top:6px; }
+    .profile-row { display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+    .avatar { width:70px; height:70px; border-radius:50%; background:#2b6cb0; color:#fff; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:700; }
+    .placeholder { color:#99a; font-size:13px; font-style:italic; }
+    .loading:before { content:"加载中…"; color:#99a; }
+    .q-row { display:flex; align-items:center; gap:8px; }
+    .q-row .num { background:#2b6cb0; color:#fff; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
+
+    /* ===== 移动端适配（窄屏导航收进汉堡菜单）===== */
+    .menu-toggle { display:none; background:none; border:none; color:#fff; font-size:24px; cursor:pointer; padding:2px 6px; }
+    @media (max-width: 860px) {
+      .navbar { padding:0 14px; }
+      .menu-toggle { display:block; margin-left:auto; }
+      .nav-links { display:none; width:100%; flex-direction:column; padding:6px 0 12px; background:#24598f; }
+      .nav-links.open { display:flex; }
+      .nav-links a { color:#fff; padding:11px 16px; border-radius:8px; }
+      .nav-links a.active { background:rgba(255,255,255,.18); font-weight:600; }
+      .page { padding:18px 14px; }
+      .entry-grid { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+      .chat-box { height:300px; }
+      .stats-grid { grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); }
+    }
+    /* 裁剪弹层 */
+    .modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,.65); z-index:2000; display:flex; align-items:center; justify-content:center; padding:16px; }
+    .modal-card { background:#fff; border-radius:12px; padding:18px; max-width:720px; width:100%; box-shadow:0 10px 40px rgba(0,0,0,.3); max-height:92vh; overflow:auto; }
+  </style>
+  <link rel="stylesheet" href="cropper.min.css">
+</head>
+<body>
+
+  <nav class="navbar">
+    <div class="logo">数学导学 <small>AI 启发式</small></div>
+    <button class="menu-toggle" onclick="toggleMenu()" aria-label="菜单">☰</button>
+    <div class="nav-links" id="navLinks">
+      <a href="#" data-page="home" class="active">首页</a>
+      <a href="#" data-page="practice">我的练习</a>
+      <a href="#" data-page="wrongbook">错题本</a>
+      <a href="#" data-page="knowledge">知识点解析</a>
+      <a href="#" data-page="ai-assistant">AI学习助手</a>
+      <a href="#" data-page="stats">学习数据</a>
+      <a href="#" data-page="profile">个人中心</a>
+    </div>
+  </nav>
+
+  <!-- 返回首页按钮（非首页时显示） -->
+  <button id="backBtn" onclick="goHome()" style="display:none;position:fixed;top:64px;left:12px;z-index:160;background:#2b6cb0;color:#fff;border:none;border-radius:20px;padding:8px 15px;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.25);">← 返回首页</button>
+
+  <!-- ① 首页 -->
+  <section id="home" class="page active">
+    <h2>欢迎回来 👋</h2>
+    <div class="card">
+      <h3>系统简介</h3>
+      <p>这是一个初中数学 <strong>AI 启发式导学</strong>系统。做错了题，AI 不会直接告诉你答案，而是通过提问一步步引导你自己想出来。</p>
+    </div>
+    <div class="entry-grid">
+      <div class="entry" onclick="showPage('practice')"><div class="icon">📝</div><h4>开始练习</h4><p>做一组数学题，检验掌握情况</p></div>
+      <div class="entry" onclick="showPage('wrongbook')"><div class="icon">📕</div><h4>错题本</h4><p>回顾做错的题</p></div>
+      <div class="entry" onclick="showPage('ai-assistant')"><div class="icon">🤖</div><h4>AI 学习助手</h4><p>卡住了？AI 引导你自己想</p></div>
+      <div class="entry" onclick="showPage('stats')"><div class="icon">📊</div><h4>我的数据</h4><p>看看正确率和薄弱点</p></div>
+    </div>
+  </section>
+
+  <!-- ② 我的练习 -->
+  <section id="practice" class="page">
+    <h2>我的练习</h2>
+    <div class="card">
+      <h3 id="practice-title">题目加载中…</h3>
+      <p class="question" id="practice-question"></p>
+      <div class="options" id="practice-options"></div>
+      <div class="result-box" id="practice-result" style="display:none;"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn" onclick="submitAnswer()">提交答案</button>
+        <button class="btn ghost" onclick="nextQuestion()">下一题</button>
+        <button class="btn ghost" onclick="loadAllPractice()">换一批</button>
+      </div>
+      <!-- 做题界面内嵌 AI 引导 -->
+      <div style="margin-top:16px;border-top:1px solid #eee;padding-top:14px;">
+        <button class="btn ghost" onclick="toggleTutor()">🤖 卡住了？让 AI 引导你</button>
+        <div id="tutor-box" style="display:none;margin-top:12px;">
+          <div class="chat-box" id="tutor-chat" style="height:220px;">
+            <div class="msg ai">告诉我你卡在哪一步，我会一步步引导你，不直接给答案哦～</div>
+          </div>
+          <div class="chat-input-row">
+            <input id="tutor-input" type="text" placeholder="说说你的思路或卡点…" onkeydown="if(event.key==='Enter')tutorSend()">
+            <button class="btn" onclick="tutorSend()">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="placeholder" style="margin-left:4px;">※ 题目来自题库数据库，提交后自动判题并记录，做错的会进错题本；卡住时可点上方 🤖 让 AI 引导</p>
+  </section>
+
+  <!-- ③ 错题本 -->
+  <section id="wrongbook" class="page">
+    <h2>错题本</h2>
+    <div class="card" id="wrongbook-list"><p class="loading"></p></div>
+  </section>
+
+  <!-- ④ 知识点解析 -->
+  <section id="knowledge" class="page">
+    <h2>知识点解析</h2>
+    <div class="card">
+      <h3>课程章节（含已收录题目）</h3>
+      <ul id="knowledge-list" style="line-height:2;color:#445;"><li class="loading"></li></ul>
+      <p class="placeholder" style="margin-top:8px;">※ 每个知识点后续可展开：定义 / 例题 / AI讲解入口，并与错题、练习联动</p>
+    </div>
+  </section>
+
+  <!-- ⑤ AI 学习助手 -->
+  <section id="ai-assistant" class="page">
+    <h2>AI 学习助手</h2>
+    <div class="card">
+      <div class="chat-box" id="chatBox">
+        <div class="msg ai">你好！我是你的数学导学AI。有哪道题不会？我会通过提问引导你自己想出来，不直接告诉你答案哦～</div>
+      </div>
+      <!-- 待发送图片预览（裁剪后） -->
+      <div id="pendingImgBar" style="display:none;align-items:center;gap:10px;margin:10px 0;padding:8px;border:1px dashed #2b6cb0;border-radius:8px;background:#f0f5ff;">
+        <img id="pendingImgPreview" style="max-width:70px;max-height:70px;border-radius:6px;flex-shrink:0;">
+        <span style="flex:1;font-size:13px;color:#556;">已选题目图片，可在上方输入补充说明后发送</span>
+        <button class="btn ghost" style="padding:6px 12px;" onclick="clearPendingImage()">✕ 移除</button>
+      </div>
+      <div class="chat-input-row">
+        <input id="chatInput" type="text" placeholder="输入题目、或补充图片描述…" onkeydown="if(event.key==='Enter')sendMessage()">
+        <button class="btn" onclick="sendMessage()">发送</button>
+      </div>
+      <div style="margin-top:10px;">
+        <label class="btn ghost" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">📷 拍照 / 传题
+          <input type="file" id="chatImage" accept="image/*" capture="environment" style="display:none" onchange="if(this.files && this.files[0]){ onImageSelected(this.files[0]); this.value=''; }">
+        </label>
+        <span class="placeholder" style="margin-left:6px;">拍照后可裁剪框选题目，还可补充文字</span>
+      </div>
+      <p class="placeholder" style="margin-top:10px;">※ AI 回复来自后端调用的大模型（配置好 API key 后即为真实引导）</p>
+    </div>
+  </section>
+
+  <!-- ⑥ 学习数据 -->
+  <section id="stats" class="page">
+    <h2>学习数据</h2>
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat">总做题数<div class="num">-</div></div>
+      <div class="stat">正确率<div class="num">-</div></div>
+      <div class="stat">错题数<div class="num">-</div></div>
+      <div class="stat">AI引导次数<div class="num">-</div></div>
+      <div class="stat">学习天数<div class="num">-</div></div>
+    </div>
+    <div class="card"><h3>薄弱知识点</h3><p id="stats-weak">暂无数据，先做几道题吧～</p></div>
+  </section>
+
+  <!-- ⑦ 个人中心 -->
+  <section id="profile" class="page">
+    <h2>个人中心</h2>
+    <div class="card">
+      <div class="profile-row">
+        <div class="avatar">学</div>
+        <div><h3>学生昵称</h3><p class="placeholder">年级 / 班级 / 学号 —— 登录信息后续接入</p></div>
+      </div>
+      <p style="margin-top:16px;"><button class="btn ghost">编辑资料</button> <button class="btn ghost">学习设置</button></p>
+    </div>
+  </section>
+
+  <!-- 图片裁剪弹层（手写触摸自由框选） -->
+  <div class="modal-overlay" id="cropModal" style="display:none;">
+    <div class="modal-card">
+      <h3 style="margin-bottom:6px;">✂️ 框选题目区域</h3>
+      <p class="placeholder" style="margin-bottom:10px;">在图上按住拖动，框住你要的题目；可继续在框内拖动微调</p>
+      <div id="cropStage" style="position:relative;max-height:58vh;overflow:hidden;background:#111;border-radius:8px;touch-action:none;">
+        <img id="cropImage" alt="待裁剪图片" style="display:block;max-width:100%;width:100%;user-select:none;-webkit-user-drag:none;">
+        <div id="cropBox" style="display:none;position:absolute;border:2px solid #4ea8ff;background:rgba(78,168,255,.18);box-shadow:0 0 0 9999px rgba(0,0,0,.55);"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeCrop()">取消</button>
+        <button class="btn" onclick="applyCrop()">使用此区域</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ============ 全局工具 ============
+  async function api(url, opts) {
+    const res = await fetch(url, opts);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || '请求失败');
+    return json.data;
+  }
+
+  function showPage(name) {
+    var nl = document.getElementById('navLinks'); if (nl) nl.classList.remove('open');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const t = document.getElementById(name);
+    if (t) t.classList.add('active');
+    document.querySelectorAll('.nav-links a').forEach(a => a.classList.toggle('active', a.dataset.page === name));
+    // 进入需要实时数据的页面时，重新拉取最新数据（修复做题后不更新的问题）
+    if (name === 'wrongbook') loadWrongBook();
+    if (name === 'stats') loadStats();
+    if (name === 'knowledge') loadKnowledge();
+    // 非首页时显示返回按钮
+    var bb = document.getElementById('backBtn');
+    if (bb) bb.style.display = (name === 'home') ? 'none' : 'block';
+  }
+
+  function goHome() { showPage('home'); }
+  document.querySelectorAll('.nav-links a').forEach(a => {
+    a.addEventListener('click', e => { e.preventDefault(); showPage(a.dataset.page); });
+  });
+
+  // ============ ② 我的练习 ============
+  let questionList = [];   // 当前题目列表
+  let qIndex = 0;          // 当前题目下标
+  let answered = false;
+
+  async function loadAllPractice() {
+    questionList = await api('/api/questions');
+    qIndex = 0;
+    renderQuestion();
+  }
+
+  function renderQuestion() {
+    if (!questionList.length) {
+      document.getElementById('practice-question').textContent = '题库暂无题目';
+      document.getElementById('practice-options').innerHTML = '';
+      return;
+    }
+    const q = questionList[qIndex];
+    document.getElementById('practice-title').textContent =
+      `第 ${qIndex + 1} / ${questionList.length} 题 · ${q.chapter}`;
+    document.getElementById('practice-question').textContent = q.question;
+    const opts = ['A','B','C','D'].map((k, i) => q['option_' + ['a','b','c','d'][i]]);
+    document.getElementById('practice-options').innerHTML = opts.filter(Boolean).map((txt, i) =>
+      `<label><input type="radio" name="qopt" value="${['A','B','C','D'][i]}"> ${['A','B','C','D'][i]}. ${txt}</label>`
+    ).join('') || '<p class="placeholder">该题型暂无选项</p>';
+    // 清空结果
+    document.getElementById('practice-result').style.display = 'none';
+    answered = false;
+  }
+
+  async function submitAnswer() {
+    if (!questionList.length) return;
+    const sel = document.querySelector('input[name="qopt"]:checked');
+    if (!sel) { alert('请先选择一个答案'); return; }
+    if (answered) return;
+    answered = true;
+
+    const q = questionList[qIndex];
+    const data = await api('/api/answers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questionId: q.id, userAnswer: sel.value })
+    });
+
+    const box = document.getElementById('practice-result');
+    box.style.display = 'block';
+    box.className = 'result-box ' + (data.correct ? 'right' : 'wrong');
+    box.innerHTML = (data.correct ? '✅ 回答正确！' : '❌ 回答错误，正确答案是 ' + data.correctAnswer)
+      + (data.explain ? '<br>📖 解析：' + data.explain : '');
+
+    // 刷新错题本/统计缓存（下次进入时更新）
+  }
+
+  function nextQuestion() {
+    if (qIndex < questionList.length - 1) { qIndex++; renderQuestion(); }
+    else alert('已经是最后一题，点击"换一批"再取一组。');
+  }
+
+  // ---- 做题界面内嵌 AI 引导 ----
+  function toggleTutor() {
+    const box = document.getElementById('tutor-box');
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+  }
+
+  // ---- 做题界面内嵌 AI 引导：多轮上下文 ----
+  let tutorHistory = []; // 只存已完成回合
+
+  async function tutorSend() {
+    if (!questionList.length) { alert('请先加载题目'); return; }
+    const q = questionList[qIndex];
+    const input = document.getElementById('tutor-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    const chat = document.getElementById('tutor-chat');
+    chat.appendChild(el('div', 'msg user', text));
+    chat.scrollTop = chat.scrollHeight;
+
+    const aiEl = el('div', 'msg ai', '');
+    chat.appendChild(aiEl);
+    chat.scrollTop = chat.scrollHeight;
+
+    // 首轮把题目作为上下文，让 AI 针对这道题引导；后续保持多轮
+    const ctx = (tutorHistory.length === 0
+      ? '学生正在做这道题：' + q.question +
+        (q.option_a ? '（选项 A:' + q.option_a + ' B:' + q.option_b + ' C:' + q.option_c + ' D:' + q.option_d + '）' : '') +
+        '\n学生说：' + text
+      : text);
+
+    let replied = '';
+    try {
+      await streamChat({ message: ctx, history: tutorHistory }, (delta) => {
+        replied += delta;
+        aiEl.textContent = formatMath(replied);
+        chat.scrollTop = chat.scrollHeight;
+      });
+    } catch (e) {
+      aiEl.textContent = '⚠️ ' + e.message;
+    }
+    if (replied) {
+      tutorHistory.push({ role: 'user', content: ctx });
+      tutorHistory.push({ role: 'assistant', content: replied });
+    }
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  // ============ ③ 错题本 ============
+  async function loadWrongBook() {
+    const box = document.getElementById('wrongbook-list');
+    box.innerHTML = '<p class="loading"></p>';
+    const list = await api('/api/wrong-book');
+    if (!list.length) { box.innerHTML = '<p>🎉 暂无错题，太棒了！</p>'; return; }
+    box.innerHTML = list.map((w, i) => `
+      <div class="card" style="margin-bottom:12px;">
+        <p class="q-row"><span class="num">${i+1}</span> <strong>${w.chapter}</strong></p>
+        <p class="question" style="margin-top:8px;">${w.question}</p>
+        <p>你的答案：<b style="color:#c0392b;">${w.user_answer}</b> ｜ 正确答案：<b style="color:#27ae60;">${w.answer}</b></p>
+        ${w.explain ? '<p class="placeholder">解析：' + w.explain + '</p>' : ''}
+        <p class="placeholder">做错时间：${w.created_at}</p>
+      </div>`).join('');
+  }
+
+  // ============ ④ 知识点解析 ============
+  async function loadKnowledge() {
+    const ul = document.getElementById('knowledge-list');
+    const list = await api('/api/knowledge');
+    if (!list.length) { ul.innerHTML = '<li>暂无知识点数据</li>'; return; }
+    ul.innerHTML = list.map(k => `<li>▣ ${k.chapter}（${k.count} 题）</li>`).join('');
+  }
+
+  // ============ ⑤ AI 学习助手（流式 + 多轮）============
+  let chatHistory = []; // 只存已完成回合
+
+  // 待发送的题目图片 base64（可附带文字一起发）
+  let pendingImage = null;
+  let cropper = null;
+
+  async function sendMessage() {
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    const box = document.getElementById('chatBox');
+
+    // 有图：走识图（图片 + 可补充文字）
+    if (pendingImage) {
+      input.value = '';
+      box.appendChild(el('div', 'msg user', text || '[题目图片]'));
+      box.scrollTop = box.scrollHeight;
+      const aiEl = el('div', 'msg ai', '🔍 正在识别题目…');
+      box.appendChild(aiEl);
+      box.scrollTop = box.scrollHeight;
+      let replied = '';
+      try {
+        const data = await api('/api/chat-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: pendingImage, message: text })
+        });
+        replied = data.reply;
+        aiEl.textContent = formatMath(replied);
+        chatHistory.push({ role: 'user', content: '[题目图片]' + (text ? ' ' + text : '') });
+        chatHistory.push({ role: 'assistant', content: replied });
+      } catch (e) {
+        aiEl.textContent = '⚠️ ' + e.message;
+      }
+      clearPendingImage();
+      box.scrollTop = box.scrollHeight;
+      return;
+    }
+
+    // 无图：文本流式引导
+    if (!text) return;
+    input.value = '';
+    box.appendChild(el('div', 'msg user', text));
+    box.scrollTop = box.scrollHeight;
+
+    const aiEl = el('div', 'msg ai', '');
+    box.appendChild(aiEl);
+    box.scrollTop = box.scrollHeight;
+
+    let replied = '';
+    try {
+      await streamChat({ message: text, history: chatHistory }, (delta) => {
+        replied += delta;
+        aiEl.textContent = formatMath(replied);
+        box.scrollTop = box.scrollHeight;
+      });
+    } catch (e) {
+      aiEl.textContent = '⚠️ ' + e.message;
+    }
+    if (replied) {
+      chatHistory.push({ role: 'user', content: text });
+      chatHistory.push({ role: 'assistant', content: replied });
+    }
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ============ 识图搜题：选图 -> 触摸自由框选 -> 待发送 ============
+  let cropRect = null;   // 当前框选区域 {x,y,w,h}，相对图片显示区
+  let cropState = null;  // 拖拽交互状态
+
+  function initCropStage() {
+    const stage = document.getElementById('cropStage');
+    if (!stage || stage.dataset.bound) return;
+    stage.dataset.bound = '1';
+
+    function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+    function rel(e) {
+      const r = stage.getBoundingClientRect();
+      return { x: clamp(e.clientX - r.left, 0, r.width), y: clamp(e.clientY - r.top, 0, r.height) };
+    }
+
+    stage.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      const p = rel(e);
+      // 点在已画框内 → 拖动移动；否则开始画新框
+      if (cropRect && p.x >= cropRect.x && p.x <= cropRect.x + cropRect.w &&
+          p.y >= cropRect.y && p.y <= cropRect.y + cropRect.h) {
+        cropState = { mode: 'move', sx: p.x, sy: p.y, ox: cropRect.x, oy: cropRect.y };
+      } else {
+        cropRect = { x: p.x, y: p.y, w: 0, h: 0 };
+        cropState = { mode: 'draw', sx: p.x, sy: p.y };
+      }
+      renderBox();
+      try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+
+    stage.addEventListener('pointermove', function (e) {
+      if (!cropState) return;
+      e.preventDefault();
+      const p = rel(e);
+      const W = stage.clientWidth, H = stage.clientHeight;
+      if (cropState.mode === 'draw') {
+        cropRect.x = clamp(Math.min(cropState.sx, p.x), 0, W);
+        cropRect.y = clamp(Math.min(cropState.sy, p.y), 0, H);
+        cropRect.w = clamp(Math.abs(p.x - cropState.sx), 0, W);
+        cropRect.h = clamp(Math.abs(p.y - cropState.sy), 0, H);
+      } else if (cropState.mode === 'move') {
+        cropRect.x = clamp(cropState.ox + (p.x - cropState.sx), 0, W - cropRect.w);
+        cropRect.y = clamp(cropState.oy + (p.y - cropState.sy), 0, H - cropRect.h);
+      }
+      renderBox();
+    });
+
+    function end() {
+      if (cropState && cropState.mode === 'draw' && cropRect && (cropRect.w < 12 || cropRect.h < 12)) {
+        cropRect = null; // 太小的框视为无效
+      }
+      cropState = null;
+      renderBox();
+    }
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+  }
+
+  function renderBox() {
+    const box = document.getElementById('cropBox');
+    if (!cropRect || cropRect.w < 1 || cropRect.h < 1) { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    box.style.left = cropRect.x + 'px';
+    box.style.top = cropRect.y + 'px';
+    box.style.width = cropRect.w + 'px';
+    box.style.height = cropRect.h + 'px';
+  }
+
+  function onImageSelected(file) {
+    if (!file || !file.type.startsWith('image/')) { alert('请选择一张图片'); return; }
+    initCropStage();
+    document.getElementById('cropModal').style.display = 'flex';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = document.getElementById('cropImage');
+      // 先绑 onload 再设 src，确保图片就绪后框选可用
+      img.onload = () => {
+        cropRect = null; cropState = null; renderBox();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function closeCrop() {
+    cropRect = null; cropState = null; renderBox();
+    document.getElementById('cropModal').style.display = 'none';
+  }
+
+  function applyCrop() {
+    let dataUrl = null;
+    const stage = document.getElementById('cropStage');
+    const img = document.getElementById('cropImage');
+    if (cropRect && cropRect.w > 1 && cropRect.h > 1 && img && img.naturalWidth) {
+      try {
+        const scaleX = img.naturalWidth / stage.clientWidth;
+        const scaleY = img.naturalHeight / stage.clientHeight;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(cropRect.w * scaleX));
+        canvas.height = Math.max(1, Math.round(cropRect.h * scaleY));
+        canvas.getContext('2d').drawImage(img,
+          Math.round(cropRect.x * scaleX), Math.round(cropRect.y * scaleY),
+          Math.round(cropRect.w * scaleX), Math.round(cropRect.h * scaleY),
+          0, 0, canvas.width, canvas.height);
+        dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+      } catch (e) { dataUrl = null; }
+    }
+    // 兜底：没框选成功就用完整图片
+    if (!dataUrl) dataUrl = img && img.src ? img.src : null;
+    closeCrop();
+    if (!dataUrl) { alert('图片处理失败，请重试'); return; }
+    pendingImage = dataUrl;
+    document.getElementById('pendingImgPreview').src = dataUrl;
+    document.getElementById('pendingImgBar').style.display = 'flex';
+    document.getElementById('chatInput').placeholder = '补充这道题的描述（可选），然后点发送…';
+    document.getElementById('chatInput').focus();
+  }
+
+  function clearPendingImage() {
+    pendingImage = null;
+    const bar = document.getElementById('pendingImgBar');
+    if (bar) bar.style.display = 'none';
+  }
+
+  // 压缩图片为 base64（手机拍照直接压缩，减小传输）
+  function compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const image = new Image();
+        image.onload = () => {
+          const MAX = 1280;
+          let w = image.width, h = image.height;
+          if (w > MAX || h > MAX) {
+            if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+            else { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(image, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        };
+        image.onerror = reject;
+        image.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // 把 AI 回复里的 LaTeX/数学符号转成手机可读的纯文本
+  function formatMath(t) {
+    if (!t) return t;
+    return t
+      .replace(/\(\[|\]\)/g, '')
+      .replace(/\(\(|\)\)/g, '')
+      .replace(/\$\$/g, '').replace(/\$/g, '')
+      .replace(/\\times/g, '×')
+      .replace(/\\cdot/g, '·')
+      .replace(/\\div/g, '÷')
+      .replace(/\\pm/g, '±')
+      .replace(/\\sqrt\{([^}]*)\}/g, '√($1)')
+      .replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1)/($2)')
+      .replace(/x\^\{?2\}?/g, 'x²').replace(/\^2/g, '²').replace(/\^3/g, '³')
+      .replace(/\\le/g, '≤').replace(/\\ge/g, '≥').replace(/\\neq/g, '≠')
+      .replace(/\\([a-zA-Z]+)/g, '');
+  }
+
+  function el(tag, cls, text) {
+    const d = document.createElement(tag);
+    if (cls) d.className = cls;
+    if (text) d.textContent = text;
+    return d;
+  }
+
+  // ============ 流式读取 /api/chat-stream（边想边出字）============
+  async function streamChat(body, onDelta) {
+    const resp = await fetch('/api/chat-stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const j = await resp.json().catch(() => ({}));
+      onDelta('⚠️ ' + (j.error || '请求失败'));
+      return;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        const payload = t.slice(5).trim();
+        if (!payload) continue;
+        try {
+          const j = JSON.parse(payload);
+          if (j.delta) onDelta(j.delta);
+          else if (j.error) onDelta('⚠️ ' + j.error);
+        } catch { /* 忽略无法解析的分片 */ }
+      }
+    }
+  }
+
+  // ============ 汉堡菜单 ============
+  function toggleMenu() {
+    const links = document.getElementById('navLinks');
+    if (links) links.classList.toggle('open');
+  }
+
+  // ============ ⑥ 学习数据 ============
+  async function loadStats() {
+    const d = await api('/api/stats');
+    const nums = document.querySelectorAll('#stats-grid .num');
+    nums[0].textContent = d.total;
+    nums[1].textContent = d.accuracy + '%';
+    nums[3].textContent = d.aiHelps;
+    nums[4].textContent = d.days;
+    // 错题数 + 薄弱知识点（每次刷新从后端重新拉）
+    try {
+      const wrong = await api('/api/wrong-book');
+      nums[2].textContent = wrong.length;
+      const weak = {};
+      wrong.forEach(w => { weak[w.chapter] = (weak[w.chapter] || 0) + 1; });
+      const sorted = Object.entries(weak).sort((a, b) => b[1] - a[1]);
+      document.getElementById('stats-weak').textContent = sorted.length
+        ? sorted.map(([c, n]) => `${c}（错${n}次）`).join('、')
+        : '暂无薄弱点，继续保持！';
+    } catch (e) { /* ignore */ }
+  }
+
+  // ============ 初始化 ============
+  (async function init() {
+    try {
+      await loadAllPractice();
+      await loadWrongBook();
+      await loadKnowledge();
+      await loadStats();
+    } catch (e) {
+      console.error('初始化失败', e);
+      alert('后端连接失败：' + e.message + '\n请确认 server.js 已在运行。');
+    }
+  })();
+  </script>
+</body>
+</html>
